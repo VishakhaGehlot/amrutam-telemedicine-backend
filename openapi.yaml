@@ -1,0 +1,163 @@
+openapi: 3.0.3
+info:
+  title: Amrutam Telemedicine API
+  version: 1.0.0
+  description: Assignment implementation API. See README for scope and limitations.
+servers:
+  - url: http://localhost:3000
+tags:
+  - name: Health
+  - name: Auth
+  - name: Doctors
+  - name: Consultations
+  - name: Admin
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+        message: { type: string }
+        requestId: { type: string }
+    Register:
+      type: object
+      required: [email, password, fullName]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 12 }
+        fullName: { type: string, minLength: 2, maxLength: 120 }
+        role: { type: string, enum: [patient, doctor], default: patient }
+    Booking:
+      type: object
+      required: [slotId]
+      properties:
+        slotId: { type: string, format: uuid }
+        reason: { type: string, maxLength: 1000 }
+paths:
+  /health/live:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      responses:
+        '200': { description: Process is alive }
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: Database readiness probe
+      responses:
+        '200': { description: Database reachable }
+        '503': { description: Database unavailable }
+  /api/v1/auth/register:
+    post:
+      tags: [Auth]
+      summary: Register patient or doctor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Register' }
+      responses:
+        '201': { description: User created }
+        '400': { description: Invalid input }
+        '409': { description: Email already registered }
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login and receive short-lived JWT
+      responses:
+        '200': { description: Access token returned }
+        '401': { description: Invalid credentials }
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      security: [{ bearerAuth: [] }]
+      summary: Current user's profile
+      responses:
+        '200': { description: Profile returned }
+        '401': { description: Missing or invalid token }
+  /api/v1/doctors:
+    get:
+      tags: [Doctors]
+      summary: Search verified doctors
+      parameters:
+        - in: query
+          name: search
+          schema: { type: string, maxLength: 80 }
+        - in: query
+          name: specialization
+          schema: { type: string, maxLength: 80 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0 }
+      responses:
+        '200': { description: Doctor list }
+  /api/v1/doctors/me/availability:
+    post:
+      tags: [Doctors]
+      security: [{ bearerAuth: [] }]
+      summary: Create own availability slot (doctor role)
+      responses:
+        '201': { description: Slot created }
+        '403': { description: Doctor role required }
+  /api/v1/consultations:
+    post:
+      tags: [Consultations]
+      security: [{ bearerAuth: [] }]
+      summary: Book a consultation; Idempotency-Key header required
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 128 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Booking' }
+      responses:
+        '201': { description: Consultation booked }
+        '409': { description: Slot unavailable or conflict }
+  /api/v1/consultations/mine:
+    get:
+      tags: [Consultations]
+      security: [{ bearerAuth: [] }]
+      summary: List consultations visible to the current user
+      responses:
+        '200': { description: Consultation list }
+  /api/v1/consultations/{id}/status:
+    patch:
+      tags: [Consultations]
+      security: [{ bearerAuth: [] }]
+      summary: Transition consultation state (doctor/admin)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Updated consultation }
+        '409': { description: Invalid state transition }
+  /api/v1/consultations/{id}/prescriptions:
+    post:
+      tags: [Consultations]
+      security: [{ bearerAuth: [] }]
+      summary: Create prescription for own consultation
+      responses:
+        '201': { description: Prescription created }
+        '403': { description: Not the assigned doctor }
+  /api/v1/admin/analytics:
+    get:
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      summary: Admin consultation analytics
+      responses:
+        '200': { description: Analytics returned }
+        '403': { description: Admin role required }
